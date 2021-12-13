@@ -187,12 +187,5 @@ Only render things in the view port (rendered inside the numpy array)
 Make the bounds of the view port a little extra than the sides of the screen to allow bleeding
 Keep a constant grid width and height, only change the cell size / view port.
     Currenty resizes instead of zooms.
-Fetch cells recursively:
-    Cannot use recursion to fetch all cells because recusive depth could be reached quite easily.
-    Must use an iterative approach.
-Split groups of cells together (cells not near each other do not need to be processed at the same time)
-    Therefore, all groups can be processed in parallel. (Will need to bench this to make sure it is
-    more efficient)
-
-
+Maybe subprocess cell updates?
 """
