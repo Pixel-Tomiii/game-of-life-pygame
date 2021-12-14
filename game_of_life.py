@@ -102,8 +102,8 @@ def render(display, cells, width, height):
 
 # Initialise window features.
 pygame.init()
-screen_width = 1920
-screen_height = 1080
+screen_width = 1000
+screen_height = 800
 display = pygame.display.set_mode((screen_width, screen_height), pygame.HWSURFACE)
 display.fill(0)
 
@@ -146,11 +146,25 @@ while True:
             elif event.key == pygame.K_SPACE and not draw:
                 running = not running
 
+            # DEL to delete screen and pause.
+            elif event.key == pygame.K_DELETE:
+                if running:
+                    running = False
+                    
+                cells = set()
+                render(display, cells, grid_width, grid_height)
+
         # Mouse button pressed events.
         elif event.type == pygame.MOUSEBUTTONDOWN:
             # Draw a cell when paused.
             if event.button == 1 and not running:
                 draw = True
+                x, y = event.pos
+                grid_x = x // cell_size
+                grid_y = y // cell_size
+
+                cells.add((grid_x, grid_y))
+                render(display, cells, grid_width, grid_height)
                 
             # Zooming in.
             if event.button == 4:
