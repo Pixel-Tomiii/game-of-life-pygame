@@ -85,24 +85,39 @@ def update(cells):
 
     return new_cells
 
+def render(display, cells, width, height):
+    # Initialise grid for writing to each frame.
+    grid = numpy.zeros((width, height), dtype=int)
+    
+    # Insert cells into grid.
+    for x, y in cells:
+        if 0 <= x < width and 0 <= y < height:
+            grid[x, y] = 255
+
+    # Update screen.
+    cell_image = pygame.surfarray.make_surface(grid.repeat(cell_size, axis=0).repeat(cell_size, axis=1))
+    
+    display.blit(cell_image, (0, 0))
+    pygame.display.update()
+
 # Initialise window features.
 pygame.init()
-screen_width = 500
-screen_height = 500
+screen_width = 1920
+screen_height = 1080
 display = pygame.display.set_mode((screen_width, screen_height), pygame.HWSURFACE)
 display.fill(0)
 
 # Initialise cell dimensions.
 min_size = 1
 max_size = 16
-cell_size = 2
+cell_size = 8
 
 # Initialise grid boundaries. Round down and add bleeding.
 grid_width = (screen_width // cell_size)
 grid_height = (screen_height // cell_size)
 
 # Game variables.
-cells = load_pattern(grid_width // 2, grid_height // 2, "r")
+cells = load_pattern(grid_width // 2, grid_height // 2, "blom")
 #cells = random_cells(grid_width-1, grid_height-1)
 
 # Game loop modifiers.
@@ -110,9 +125,11 @@ current = time.time()
 last = time.time()
 interval = 0
 frames = 0
-running = True
+running = False
+draw = False
 
 start = time.time()
+render(display, cells, grid_width, grid_height)
 # Game loop.
 while True:
     # Loop through events.
@@ -126,11 +143,15 @@ while True:
                 print(f"fps: {round(frames / (time.time() - start), 1)}")
                 os._exit(0)
             # Space bar to pause.
-            elif event.key == pygame.K_SPACE:
+            elif event.key == pygame.K_SPACE and not draw:
                 running = not running
 
         # Mouse button pressed events.
         elif event.type == pygame.MOUSEBUTTONDOWN:
+            # Draw a cell when paused.
+            if event.button == 1 and not running:
+                draw = True
+                
             # Zooming in.
             if event.button == 4:
                 pass
@@ -142,6 +163,21 @@ while True:
             pygame.quit()
             print(f"fps: {round(frames / (time.time() - start), 1)}")
             os._exit(0)
+
+        elif event.type == pygame.MOUSEMOTION:
+            if draw:
+                x, y = event.pos
+                grid_x = x // cell_size
+                grid_y = y // cell_size
+
+                cells.add((grid_x, grid_y))
+                render(display, cells, grid_width, grid_height)
+
+        # Mouse button up events.
+        elif event.type == pygame.MOUSEBUTTONUP:
+            # Stop drawing cells.
+            if event.button == 1:
+                draw = False
             
     # Go back to start if it's not time for a new frame.
     current = time.time()
@@ -150,17 +186,7 @@ while True:
     last = current
     frames += 1
 
-    # Initialise grid for writing to each frame.
-    grid = numpy.zeros((grid_width, grid_height), dtype=int)
     # Updating the cells.
     cells = update(cells)
-    # Insert cells into grid.
-    for x, y in cells:
-        if 0 <= x < grid_width and 0 <= y < grid_height:
-            grid[x, y] = 255
-
-    # Update screen.
-    cell_image = pygame.surfarray.make_surface(grid.repeat(cell_size, axis=0).repeat(cell_size, axis=1))
+    render(display, cells, grid_width, grid_height)
     
-    display.blit(cell_image, (0, 0))
-    pygame.display.update()
