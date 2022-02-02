@@ -1,206 +1,271 @@
+# Game of life
+
 import pygame
-import numpy
 import time
-import random
-import os
-    
-def load_pattern(x, y, pattern):
-    """Function for loading certain patterns from a text file of
-    coordinated with origin 0,0. Each coordinate represents an offset
-    from the x and y position given.
+import numpy
+import math
 
-    Pattern must be saved in patterns directory.
 
-    Returns:
-        A set of cell coordinate tuples."""
-    cells = set()
-    with open("patterns/" + pattern + ".txt" if not pattern.endswith(".txt") else "") as pattern_map:
-        for line in pattern_map:
-            line = line.strip()
 
-            # Skip blank lines.
-            if not line:
-                continue
 
-            offset_x, offset_y = line.split(",")
-            cells.add((x+int(offset_x), y+int(offset_y)))
-    return cells
+FPS = 60
+BG_COLOR = (30, 30, 30)
+CELL_COLOR = (140, 255, 0)
+COLORKEY = (0, 0, 0)
+CELL_SIZE = 8
 
-def random_cells(width, height):
-    """Function for creating a random amount of cells randomly distrubuted."""
-    cells = set()
-    for cell_num in range(random.randint(width, width * height)):
-        cells.add((random.randint(0, width), random.randint(0, height)))
-    return cells
 
-def neighbours(x, y, cells, currently_dead):
-    """Returns the number of alive cells around the current cell.
-    Updates current_dead set.
-    If centre cell is dead, alive neighbours is 1 less than absolute."""
-    total = -1  # Start at -1 because centre cell is usually alive.
+def scale_render(render):
+    """Scales a rendered surface of cells."""
+    return pygame.transform.scale(render, (render.get_width() * CELL_SIZE, render.get_height() * CELL_SIZE))
 
-    # work from an offset of x and y
-    for y_offset in range(-1, 2):
-        for x_offset in range(-1, 2):
-            new_pos = (x+x_offset, y+y_offset)
-            if new_pos in cells:
-                total += 1
-            else:
-                currently_dead.add(new_pos)
-                
-    return total
 
-def alive_neighbours(x, y, cells):
-    """Returns the number of alive cells around the current cell.
-    If centre cell is dead, alive neighbours is 1 less than absolute."""
-    total = -1  # Start at -1 because centre cell is usually alive.
+def generate_render(width, height, colorkey):
+    """Generates an Surface of which the cells will be drawn to."""
+    padding = 0 # cells rendered outside the surface.
+    # Calculate width and height.
+    render_width = math.ceil(width / CELL_SIZE) + padding
+    render_height = math.ceil(height / CELL_SIZE) + padding
+    # Create render surface and update colorkey.
+    render = pygame.Surface((render_width, render_height)).convert_alpha()
+    render.set_colorkey(colorkey)
+    return render
 
-    # work from an offset of x and y
-    for y_offset in range(-1, 2):
-        for x_offset in range(-1, 2):
-            new_pos = (x+x_offset, y+y_offset)
-            if new_pos in cells:
-                total += 1
-                
-    return total
-    
-def update(cells):
-    """Updates a set of cells, returning a set of alive cells."""
-    new_cells = set()
+
+def render_cells(render, cells, color, view):
+    """Draws the cells onto the image."""
+    width = render.get_width()
+    height = render.get_height()
+
+    for point in cells:
+        if (0 <= point[0] - view[0] < width and
+            0 <= point[1] - view[1] < height):
+            # Render point.
+            render_point = (point[0] - view[0], point[1] - view[1])
+            render.set_at(render_point, color)
+            
+
+def screen_to_grid(pos, view):
+    """Converts the screen coordinates to an  x, y position"""
+    x = pos[0] // CELL_SIZE
+    y = pos[1] // CELL_SIZE
+    return (view[0] + x, view[1] + y)
+
+
+# -- GAME UPDATES ------------------------------------------------------
+def get_dead_neighbours(x, y, cells):
+    """Finds the neighbours that are dead around the current cell."""
+    offset = range(-1, 0, -1)
     dead_cells = set()
+    
+    # Loop through the neighbourhood.
+    for y_offset in offset:
+        for x_offset in offset:
+            point = (x + x_offset, y + y_offset)
+            if point in cells:
+                continue
+            dead_cells.add(point)
 
-    # Update every cell.
-    for coord in cells:
-        num_alive = neighbours(*coord, cells, dead_cells)
+    return dead_cells
+
+
+def combine_cells(set1, set2):
+    """Adds the smaller set of cells to the bigger set.
+    Returns the bigger set."""
+    if len(set1) < len(set2):
+        set1, set2 = set2, set1
+
+    # Loop through smaller set.
+    for cell in set2:
+        if cell not in set1:
+            set1.add(cell)
+
+    return set1
+
+
+def neighbourhood(x, y, cells):
+    """Returns a set of alive cells and a set of dead cells surrounding
+    the current x, y position."""
+    offset = range(-1, 2)
+    dead_cells = set()
+    alive_cells = set()
+
+    # Loop through the neighbourhood.
+    for y_offset in offset:
+        for x_offset in offset:
+            point = (x + x_offset, y + y_offset)
+            if point in cells:
+                alive_cells.add(point)
+                continue
+            dead_cells.add(point)
+
+    return (alive_cells, dead_cells)
         
-        # Keep it alive.
-        if num_alive == 2 or num_alive == 3:
-            new_cells.add(coord)
-
-    # Update every dead cell.
-    for coord in dead_cells:
-        num_alive = alive_neighbours(*coord, cells)
-        if num_alive == 2:
-            new_cells.add(coord)
-
-    return new_cells
-
-def render(display, cells, width, height):
-    # Initialise grid for writing to each frame.
-    grid = numpy.zeros((width, height), dtype=int)
     
-    # Insert cells into grid.
-    for x, y in cells:
-        if 0 <= x < width and 0 <= y < height:
-            grid[x, y] = 255
+def update_cells(alive):
+    """Updates the set of cells. Returns the new set of alive cells and
+    the new set of dead cells."""
+    new_alive = set()
+    dead = set()
+    # Update alive cells first.
+    for point in alive:
+        alive_neighbours, dead_neighbours = neighbourhood(*point, alive)
+        dead = combine_cells(dead, dead_neighbours)
 
-    # Update screen.
-    cell_image = pygame.surfarray.make_surface(grid.repeat(cell_size, axis=0).repeat(cell_size, axis=1))
-    
-    display.blit(cell_image, (0, 0))
-    pygame.display.update()
+        # Cell lives.
+        if 2 < len(alive_neighbours) < 5:
+            new_alive.add(point)
+            continue
 
-# Initialise window features.
-pygame.init()
-screen_width = 1000
-screen_height = 800
-display = pygame.display.set_mode((screen_width, screen_height), pygame.HWSURFACE)
-display.fill(0)
+    # Update dead cells.
+    for point in dead:
+        alive_neighbours, dead_neighbours = neighbourhood(*point, alive)
 
-# Initialise cell dimensions.
-min_size = 1
-max_size = 16
-cell_size = 8
+        # Cell revives.
+        if len(alive_neighbours) == 3:
+            new_alive.add(point)
+            continue
+    return new_alive
 
-# Initialise grid boundaries. Round down and add bleeding.
-grid_width = (screen_width // cell_size)
-grid_height = (screen_height // cell_size)
+
+def update_cell(point, cells):
+    """Inserts a cell into the game."""
+    if point in cells:
+        cells.remove(point)
+    else:
+        cells.add(point)
+        
+
+# Window initialisation.
+pygame.init
+screen = pygame.display.set_mode(flags=pygame.FULLSCREEN)
+
+width = screen.get_width()
+height = screen.get_height()
+
+old_view = (0, 0)
+view = (0, 0)
+drag_start = ()
+
+# Control flags.
+control = {
+    "running":True,
+    "paused":True,
+    "draw":False,
+    "drag":False
+    }
+
+# Frame rendering control.
+interval = 1 / FPS
+next_frame = time.time()
+frames = 0
+next_second = time.time()
 
 # Game variables.
-cells = load_pattern(grid_width // 2, grid_height // 2, "blom")
-#cells = random_cells(grid_width-1, grid_height-1)
+cells = set()
+dead_cells = set()
+updated = set()
 
-# Game loop modifiers.
-current = time.time()
-last = time.time()
-interval = 0
-frames = 0
-running = False
-draw = False
-
-start = time.time()
-render(display, cells, grid_width, grid_height)
-# Game loop.
-while True:
-    # Loop through events.
+while control["running"]:
+    # Handle events.
     for event in pygame.event.get():
-        
-        # Keyboard events.
+
+        # Quit event.
+        if event.type == pygame.QUIT:
+            control["running"] = False
+            break
+
+        # Key pressed.
         if event.type == pygame.KEYDOWN:
-            # Ecape to quit.
+            # Quit on ESCAPE pressed.
             if event.key == pygame.K_ESCAPE:
-                pygame.quit()
-                print(f"fps: {round(frames / (time.time() - start), 1)}")
-                os._exit(0)
-            # Space bar to pause.
-            elif event.key == pygame.K_SPACE and not draw:
-                running = not running
+                control["running"] = False
+                break
 
-            # DEL to delete screen and pause.
-            elif event.key == pygame.K_DELETE:
-                if running:
-                    running = False
-                    
-                cells = set()
-                render(display, cells, grid_width, grid_height)
+            # Pause on p pressed.
+            if event.key == pygame.K_p:
+                control["paused"] = not control["paused"]
+                continue
 
-        # Mouse button pressed events.
-        elif event.type == pygame.MOUSEBUTTONDOWN:
-            # Draw a cell when paused.
-            if event.button == 1 and not running:
-                draw = True
-                x, y = event.pos
-                grid_x = x // cell_size
-                grid_y = y // cell_size
-
-                cells.add((grid_x, grid_y))
-                render(display, cells, grid_width, grid_height)
-                
-            # Zooming in.
-            if event.button == 4:
-                pass
-            # Zooming out
-            elif event.button == 5:
-                pass
-
-        elif event.type == pygame.QUIT:
-            pygame.quit()
-            print(f"fps: {round(frames / (time.time() - start), 1)}")
-            os._exit(0)
-
-        elif event.type == pygame.MOUSEMOTION:
-            if draw:
-                x, y = event.pos
-                grid_x = x // cell_size
-                grid_y = y // cell_size
-
-                cells.add((grid_x, grid_y))
-                render(display, cells, grid_width, grid_height)
-
-        # Mouse button up events.
-        elif event.type == pygame.MOUSEBUTTONUP:
-            # Stop drawing cells.
-            if event.button == 1:
-                draw = False
+        # Mouse pressed.
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            # Draw on left click.
+            if event.button == 1 and not control["drag"]:
+                control["draw"] = True
+                # Fill initial cell.
+                point = screen_to_grid(event.pos, view)
+                if point not in updated:
+                    update_cell(point, cells)
+                    updated.add(point)
+                continue
+            # Move render on right click.
+            if event.button == 3 and not control["draw"]:
+                control["drag"] = True
+                drag_start = screen_to_grid(event.pos, view)
+                continue
             
-    # Go back to start if it's not time for a new frame.
-    current = time.time()
-    if not running or current - last < interval:
-        continue
-    last = current
-    frames += 1
+        # Mouse released
+        if event.type == pygame.MOUSEBUTTONUP:
+            # Stop drawing.
+            if event.button == 1:
+                control["draw"] = False
+                updated = set()
+                continue
+            # Stop dragging.
+            if event.button == 3:
+                control["drag"] = False
+                old_view = view
+                continue
 
-    # Updating the cells.
-    cells = update(cells)
-    render(display, cells, grid_width, grid_height)
-    
+        # Mouse moved.
+        if event.type == pygame.MOUSEMOTION:
+            # If drawing, fill line.
+            if control["draw"]:
+                # FIX ME: Convert to line.
+                point = screen_to_grid(event.pos, view)
+                if point not in updated:
+                    update_cell(point, cells)
+                    updated.add(point)
+                continue
+
+            # If drawing, move render by offset amount.
+            if control["drag"]:
+                x1, y1 = drag_start
+                x2, y2 = screen_to_grid(event.pos, old_view)
+                
+                diff_x = x1 - x2
+                diff_y = y1 - y2
+                view = (old_view[0] + diff_x, old_view[1] + diff_y)
+                continue
+            
+
+    # Update screen.
+    current = time.time()
+    if current >= next_frame:
+        # Framerate correction.
+        while current >= next_frame:
+            next_frame += interval
+
+        frames += 1
+
+        # Update cells if not paused.
+        if not control["paused"]:
+            cells = update_cells(cells)
+
+        # Wiping screen and rendering cells.
+        screen.fill(BG_COLOR)
+        
+        render = generate_render(width, height, COLORKEY)
+        render_cells(render, cells, CELL_COLOR, view)
+        render = scale_render(render)
+        render_pos = ((width - render.get_width()) / 2, (height - render.get_height()) / 2)
+        
+        screen.blit(render, render_pos)
+        pygame.display.update()
+
+    if current > next_second:
+        next_second += 1
+        print(frames)
+        frames = 0
+
+pygame.quit()
